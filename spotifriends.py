@@ -4,7 +4,6 @@ import modal
 import json
 import pandas as pd
 import mysql.connector
-import datetime
 
 
 vol = modal.SharedVolume().persist("spotifriends-vol")
@@ -14,9 +13,9 @@ image = modal.Image.debian_slim().pip_install(
 stub = modal.Stub("spotifriends")
 
 
-def getWebAccessToken(spdc: str) -> str:
+def getWebAccessToken(spdc: str, spauthurl: str) -> str:
     req = requests.get(
-        "https://open.spotify.com/get_access_token?reason=transport&productType=web_player",
+        spauthurl,
         headers={"Cookie": "sp_dc=" + spdc},
     )
     resp = req.json()
@@ -32,14 +31,26 @@ def getBuddyList(accessToken: str, spclient: str) -> dict:
     return req.json()
 
 
-def loadCachedVersion(filename: str) -> dict:
+def getMyCurrentPlayback(accessToken: str, spapi: str) -> dict:
+    req = requests.get(
+        spapi + "/v1/me/player",
+        headers={"Authorization": "Bearer " + accessToken},
+    )
+
+    if req.status_code == 200:
+        return req.json()
+    else:
+        return None
+
+
+def loadCachedObject(filename: str) -> dict:
     cached = {}
     with open(filename) as f:
         cached = json.load(f)
     return cached
 
 
-def saveCachedVersion(filename: str, data: dict):
+def saveCachedObject(filename: str, data: dict):
     serializedJson = json.dumps(data, indent=4)
 
     with open(filename, "w") as outfile:
@@ -84,7 +95,15 @@ def flattenStructure(buddyList: dict) -> dict:
     return newChangesResult
 
 
-def saveToDb(data, dbconnection):
+def flattenStructureMe(meData: dict) -> dict:
+    meData["item"]["artists"] = meData["item"]["artists"][0]
+
+    df = pd.json_normalize(meData, sep="_")
+    flattened = df.to_dict(orient="records")[0]
+    return flattened
+
+
+def saveActivityToDb(data, dbconnection):
     cursor = dbconnection.cursor()
 
     add_activity = (
@@ -98,8 +117,23 @@ def saveToDb(data, dbconnection):
     cursor.close()
 
 
+def saveMyActivityToDb(data, dbconnection):
+    cursor = dbconnection.cursor()
+
+    add_my_activity = (
+        "INSERT INTO MyActivity"
+        "(shuffle_state, repeat_state, timestamp, progress_ms, currently_playing_type, is_playing, device_id, device_is_active, device_is_private_session, device_is_restricted, device_name, device_type, device_volume_percent, context_type, context_uri, item_album_name, item_album_uri, item_artists_name, item_artists_uri, item_duration_ms, item_explicit, item_is_local, item_name, item_popularity, item_track_number, item_uri)"
+        "VALUES (%(shuffle_state)s, %(repeat_state)s, %(timestamp)s, %(progress_ms)s, %(currently_playing_type)s, %(is_playing)s, %(device_id)s, %(device_is_active)s, %(device_is_private_session)s, %(device_is_restricted)s, %(device_name)s, %(device_type)s, %(device_volume_percent)s, %(context_type)s, %(context_uri)s, %(item_album_name)s, %(item_album_uri)s, %(item_artists_name)s, %(item_artists_uri)s, %(item_duration_ms)s, %(item_explicit)s, %(item_is_local)s, %(item_name)s, %(item_popularity)s, %(item_track_number)s, %(item_uri)s)"
+    )
+
+    cursor.execute(add_my_activity, data)
+    dbconnection.commit()
+    print(cursor.rowcount, "Record inserted successfully into my activity table")
+    cursor.close()
+
+
 @stub.function(
-    schedule=modal.Cron("*/2 * * * *"),
+    schedule=modal.Cron("*/1 * * * *"),
     secret=modal.Secret.from_name("spotifriends-secrets"),
     image=image,
     shared_volumes={"/cache": vol},
@@ -107,31 +141,64 @@ def saveToDb(data, dbconnection):
 def main():
     spdc = os.environ["SPDC"]
     spclient = os.environ["SPCLIENT"]
+    spauthurl = os.environ["SPAUTHURL"]
+    spapi = os.environ["SPAPI"]
 
-    cachedVersion = loadCachedVersion("/cache/cached.json")
+    cachedVersion = loadCachedObject("/cache/cached.json")
 
-    accessToken = getWebAccessToken(spdc)
+    accessToken = getWebAccessToken(spdc, spauthurl)
+
+    myActivity = getMyCurrentPlayback(accessToken, spapi)
     newBuddyList = getBuddyList(accessToken, spclient)
-
     newChanges = determineNewChanges(newBuddyList, cachedVersion)
+
+    connection = None
+
+    if myActivity is not None:
+        cachedMe = loadCachedObject("/cache/cachedMe.json")
+        normalizedMeData = flattenStructureMe(myActivity)
+
+        del normalizedMeData["item_album_artists"]
+        del normalizedMeData["item_album_available_markets"]
+        del normalizedMeData["item_available_markets"]
+        del normalizedMeData["item_album_images"]
+
+        if (
+            normalizedMeData["item_uri"] != cachedMe["item_uri"]
+            and normalizedMeData["timestamp"] != cachedMe["timestamp"]
+        ):
+
+            connection = mysql.connector.connect(
+                host=os.environ["DB_HOST"],
+                user=os.environ["DB_USERNAME"],
+                password=os.environ["DB_PASSWORD"],
+                database=os.environ["DB_NAME"],
+                ssl_ca="/etc/ssl/cert.pem",
+            )
+
+            saveMyActivityToDb(normalizedMeData, connection)
+            saveCachedObject("/cache/cachedMe.json", normalizedMeData)
 
     # if there are new changes
     if len(newChanges["friends"]) > 0:
 
         flattenedData = flattenStructure(newChanges)
 
-        connection = mysql.connector.connect(
-            host=os.environ["DB_HOST"],
-            user=os.environ["DB_USERNAME"],
-            password=os.environ["DB_PASSWORD"],
-            database=os.environ["DB_NAME"],
-            ssl_ca="/etc/ssl/cert.pem",
-        )
+        if connection is None:
+            connection = mysql.connector.connect(
+                host=os.environ["DB_HOST"],
+                user=os.environ["DB_USERNAME"],
+                password=os.environ["DB_PASSWORD"],
+                database=os.environ["DB_NAME"],
+                ssl_ca="/etc/ssl/cert.pem",
+            )
 
-        saveToDb(flattenedData, connection)
+        saveActivityToDb(flattenedData, connection)
 
+        saveCachedObject("/cache/cached.json", newBuddyList)
+
+    if connection is not None:
         connection.close()
-        saveCachedVersion("/cache/cached.json", newBuddyList)
 
 
 if __name__ == "__main__":
