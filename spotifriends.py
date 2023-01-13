@@ -109,11 +109,26 @@ def saveActivityToDb(data, dbconnection):
     add_activity = (
         "INSERT INTO Activity "
         "(timestamp, user_uri, user_name, track_uri, track_name, track_imageUrl, track_album_uri, track_album_name, track_artist_uri, track_artist_name, track_context_name, track_context_index) "
-        "VALUES (%(timestamp)s, %(user_uri)s, %(user_name)s, %(track_uri)s, %(track_name)s, %(track_imageUrl)s, %(track_album_uri)s, %(track_album_name)s, %(track_artist_uri)s, %(track_artist_name)s, %(track_context_name)s, %(track_context_index)s)"
+        "VALUES (%(timestamp)s, %(user_uri)s, %(user_name)s, %(track_uri)s, %(track_name)s, %(track_imageUrl)s, %(track_album_uri)s, %(track_album_name)s, %(track_artist_uri)s, %(track_artist_name)s, %(track_context_name)s, %(track_context_index)s);"
     )
-    cursor.executemany(add_activity, data["friends"])
-    dbconnection.commit()
-    print(cursor.rowcount, "Record inserted successfully into table")
+
+    count = 0
+    failures = 0
+    for each in data["friends"]:
+        try:
+            cursor.execute(add_activity, each)
+            dbconnection.commit()
+            count += 1
+        except mysql.connector.Error as err:
+            print("ERROR INSERTING INTO ACTIVITY: ", cursor.statement)
+            failures += 1
+
+    print(
+        count,
+        "Record inserted successfully into Activity, ",
+        failures,
+        "Records failed",
+    )
     cursor.close()
 
 
@@ -126,9 +141,14 @@ def saveMyActivityToDb(data, dbconnection):
         "VALUES (%(shuffle_state)s, %(repeat_state)s, %(timestamp)s, %(progress_ms)s, %(currently_playing_type)s, %(is_playing)s, %(device_id)s, %(device_is_active)s, %(device_is_private_session)s, %(device_is_restricted)s, %(device_name)s, %(device_type)s, %(device_volume_percent)s, %(context_type)s, %(context_uri)s, %(item_album_name)s, %(item_album_uri)s, %(item_artists_name)s, %(item_artists_uri)s, %(item_duration_ms)s, %(item_explicit)s, %(item_is_local)s, %(item_name)s, %(item_popularity)s, %(item_track_number)s, %(item_uri)s)"
     )
 
-    cursor.execute(add_my_activity, data)
-    dbconnection.commit()
-    print(cursor.rowcount, "Record inserted successfully into my activity table")
+    try:
+        cursor.execute(add_my_activity, data)
+        dbconnection.commit()
+        print(cursor.rowcount, "Record inserted successfully into my activity table")
+
+    except mysql.connector.Error as err:
+        print("ERROR INSERTING INTO ACTIVITY: ", cursor.statement)
+
     cursor.close()
 
 
