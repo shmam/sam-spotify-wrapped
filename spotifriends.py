@@ -1,4 +1,5 @@
 import os
+import sys
 import requests
 import modal
 import json
@@ -18,7 +19,12 @@ def getWebAccessToken(spdc: str, spauthurl: str) -> str:
         spauthurl,
         headers={"Cookie": "sp_dc=" + spdc},
     )
-    resp = req.json()
+    resp: dict = req.json()
+
+    if req.status_code != 200 and resp.get("accessToken") is None:
+        print(resp)
+        return None
+
     return resp["accessToken"]
 
 
@@ -167,6 +173,9 @@ def main():
     cachedVersion = loadCachedObject("/cache/cached.json")
 
     accessToken = getWebAccessToken(spdc, spauthurl)
+
+    if accessToken is None:
+        sys.exit("error with authentication")
 
     myActivity = getMyCurrentPlayback(accessToken, spapi)
     newBuddyList = getBuddyList(accessToken, spclient)
