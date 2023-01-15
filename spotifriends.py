@@ -1,10 +1,9 @@
 import os
-import sys
-import requests
 import modal
 import json
 import pandas as pd
 import mysql.connector
+from services.spotifyService import *
 
 
 vol = modal.SharedVolume().persist("spotifriends-vol")
@@ -12,41 +11,6 @@ image = modal.Image.debian_slim().pip_install(
     ["requests", "pandas", " mysql-connector-python"]
 )
 stub = modal.Stub("spotifriends")
-
-
-def getWebAccessToken(spdc: str, spauthurl: str) -> str:
-    req = requests.get(
-        spauthurl,
-        headers={"Cookie": "sp_dc=" + spdc},
-    )
-    resp: dict = req.json()
-
-    if req.status_code != 200 and resp.get("accessToken") is None:
-        print(resp)
-        return None
-
-    return resp["accessToken"]
-
-
-def getBuddyList(accessToken: str, spclient: str) -> dict:
-    req = requests.get(
-        spclient + "/presence-view/v1/buddylist",
-        headers={"Authorization": "Bearer " + accessToken},
-    )
-
-    return req.json()
-
-
-def getMyCurrentPlayback(accessToken: str, spapi: str) -> dict:
-    req = requests.get(
-        spapi + "/v1/me/player",
-        headers={"Authorization": "Bearer " + accessToken},
-    )
-
-    if req.status_code == 200:
-        return req.json()
-    else:
-        return None
 
 
 def loadCachedObject(filename: str) -> dict:
@@ -126,7 +90,7 @@ def saveActivityToDb(data, dbconnection):
             dbconnection.commit()
             count += 1
         except mysql.connector.Error as err:
-            print("ERROR INSERTING INTO ACTIVITY: ", cursor.statement)
+            print("ERROR INSERTING INTO ACTIVITY: ", cursor.statement, err)
             failures += 1
 
     print(
@@ -153,7 +117,7 @@ def saveMyActivityToDb(data, dbconnection):
         print(cursor.rowcount, "Record inserted successfully into my activity table")
 
     except mysql.connector.Error as err:
-        print("ERROR INSERTING INTO ACTIVITY: ", cursor.statement)
+        print("ERROR INSERTING INTO ACTIVITY: ", cursor.statement, err)
 
     cursor.close()
 
@@ -232,5 +196,5 @@ def main():
 
 if __name__ == "__main__":
     with stub.run():
-        # main.call()
-        stub.deploy("spotifriends")
+        main.call()
+        # stub.deploy("spotifriends")
