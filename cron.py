@@ -16,7 +16,10 @@ stub = modal.Stub("spotifriends")
 def loadCachedObject(filename: str) -> dict:
     cached = {}
     with open(filename) as f:
-        cached = json.load(f)
+        try:
+            cached = json.load(f)
+        except json.JSONDecodeError:
+            return None
     return cached
 
 
@@ -27,8 +30,11 @@ def saveCachedObject(filename: str, data: dict):
         outfile.write(serializedJson)
 
 
-def determineNewChanges(cachedVersion, newVersion):
+def determineNewChanges(newVersion, cachedVersion):
     newChangesResult = {"friends": []}
+
+    if cachedVersion is None:
+        return newVersion
 
     for eachFriend in newVersion["friends"]:
         timestamp = eachFriend["timestamp"]
@@ -143,6 +149,7 @@ def main():
 
     myActivity = getMyCurrentPlayback(accessToken, spapi)
     newBuddyList = getBuddyList(accessToken, spclient)
+
     newChanges = determineNewChanges(newBuddyList, cachedVersion)
 
     connection = None
@@ -196,5 +203,5 @@ def main():
 
 if __name__ == "__main__":
     with stub.run():
-        main.call()
-        # stub.deploy("spotifriends")
+        # main.call()
+        stub.deploy("spotifriends")
