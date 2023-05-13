@@ -129,7 +129,7 @@ def saveMyActivityToDb(data, dbconnection):
 
 
 @stub.function(
-    schedule=modal.Cron("*/1 * * * *"),
+    schedule=modal.Period(seconds=30),
     secret=modal.Secret.from_name("spotifriends-secrets"),
     image=image,
     shared_volumes={"/cache": vol},
