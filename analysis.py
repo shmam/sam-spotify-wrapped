@@ -1,11 +1,15 @@
 import os
 import mysql.connector
 from services.spotifyService import getWebAccessToken, getAudioFeatures
-from dotenv import load_dotenv
+import modal
 
-load_dotenv()
+image = modal.Image.debian_slim().pip_install(
+    ["requests", "pandas", " mysql-connector-python"]
+)
+stub = modal.Stub("spotifriends-analysis")
 
-def establishConnection() -> any: 
+
+def establishConnection() -> any:
     connection = mysql.connector.connect(
                 host=os.environ["DB_HOST"],
                 user=os.environ["DB_USERNAME"],
@@ -15,7 +19,7 @@ def establishConnection() -> any:
         )
     return connection
 
-def getTracks(connection) -> list: 
+def getTracks(connection) -> list:
     cursor = connection.cursor()
 
     query = """
@@ -44,7 +48,7 @@ def cleanTracks(uncleanTracks: list) -> list:
 
     return cleaned
 
-def uploadAnalysis(data, connnection): 
+def uploadAnalysis(data, connnection):
     cursor = connnection.cursor()
 
     insert_query = (
@@ -62,17 +66,22 @@ def uploadAnalysis(data, connnection):
             connnection.commit()
             count+=1
         except mysql.connector.Error as err:
-            print("ERROR INSERTING INTO AudioAnalysis: ", cursor.statement, err)
+            # print("ERROR INSERTING INTO AudioAnalysis: ", cursor.statement, err, each)
             failures += 1
 
     print(
+        "✅ ",
         count,
-        "Record inserted successfully into AudioAnalysis, ",
+        "Record inserted successfully into AudioAnalysis, 💔 ",
         failures,
         "Records failed",
     )
     cursor.close()
 
+@stub.function(
+    secret=modal.Secret.from_name("spotifriends-secrets"),
+    image=image,
+)
 def main():
     spdc = os.environ["SPDC"]
     spauthurl = os.environ["SPAUTHURL"]
@@ -85,18 +94,22 @@ def main():
     uncleanTracks = getTracks(conn)
     cleanedTracks = cleanTracks(uncleanTracks)
 
+    print("🗃️ total tracks to insert: ", len(cleanedTracks))
+
+    batch_size = 50
+
     batches = []
-    if len(cleanedTracks) > 100:
-        batches = [cleanedTracks[i:i+100] for i in range(0, len(cleanedTracks), 100)]
+    if len(cleanedTracks) > batch_size:
+        batches = [cleanedTracks[i:i+batch_size] for i in range(0, len(cleanedTracks), batch_size)]
     else:
         batches = [cleanedTracks]
 
-    for eachBatch in batches: 
+    for eachBatch in batches:
         audioFeatures = getAudioFeatures(token, spapi, eachBatch)
         uploadAnalysis(audioFeatures, conn)
 
-    
 
 
 if __name__ == "__main__":
-    main()
+    with stub.run():
+        main.call()
