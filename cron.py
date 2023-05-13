@@ -129,7 +129,7 @@ def saveMyActivityToDb(data, dbconnection):
 
 
 @stub.function(
-    schedule=modal.Cron("*/30 * * * * *"),
+    schedule=modal.Cron("*/1 * * * *"),
     secret=modal.Secret.from_name("spotifriends-secrets"),
     image=image,
     shared_volumes={"/cache": vol},
@@ -167,7 +167,6 @@ def main():
             normalizedMeData["item_uri"] != cachedMe["item_uri"]
             and normalizedMeData["timestamp"] != cachedMe["timestamp"]
         ):
-
             connection = mysql.connector.connect(
                 host=os.environ["DB_HOST"],
                 user=os.environ["DB_USERNAME"],
@@ -181,7 +180,6 @@ def main():
 
     # if there are new changes
     if len(newChanges["friends"]) > 0:
-
         flattenedData = flattenStructure(newChanges)
 
         if connection is None:
