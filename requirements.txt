@@ -1,4 +1,4 @@
-modal-client==0.46.1547
+modal-client>=0.48.1887
 pandas==0.25.3
 requests==2.22.0
 mysql-connector-python==8.0.32
