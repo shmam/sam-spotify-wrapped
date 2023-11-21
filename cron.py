@@ -132,7 +132,7 @@ def saveMyActivityToDb(data, dbconnection):
     schedule=modal.Period(seconds=20),
     secret=modal.Secret.from_name("spotifriends-secrets"),
     image=image,
-    shared_volumes={"/cache": vol},
+    network_file_systems={"/cache": vol},
 )
 def main():
     spdc = os.environ["SPDC"]
