@@ -6,7 +6,7 @@ import mysql.connector
 from services.spotifyService import *
 
 
-vol = modal.SharedVolume().persist("spotifriends-vol")
+vol = modal.NetworkFileSystem.new().persist("spotifriends-vol")
 image = modal.Image.debian_slim().pip_install(
     ["requests", "pandas", " mysql-connector-python"]
 )
